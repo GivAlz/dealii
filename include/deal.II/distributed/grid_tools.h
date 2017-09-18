@@ -17,6 +17,7 @@
 #define dealii_distributed_grid_tools_h
 
 
+#include <deal.II/base/bounding_box.h>
 #include <deal.II/base/config.h>
 #include <deal.II/base/exceptions.h>
 #include <deal.II/distributed/tria_base.h>
@@ -130,6 +131,21 @@ namespace parallel
     exchange_cell_data_to_ghosts (const MeshType &mesh,
                                   std::function<boost::optional<DataType> (const typename MeshType::active_cell_iterator &)> pack,
                                   std::function<void (const typename MeshType::active_cell_iterator &, const DataType &)> unpack);
+
+    /**
+     * Compute a vector of bounding boxes which approximates the space occupied by
+     * the locally_owned cells. The number of bounding boxes (two or more) tries
+     * to catch the general shape of the space occupied by the locally_owned_cells,
+     * describing connected components and bigger shape variations.
+     *
+     * This function is meant to work only with a parallel::distributed::Triangulation
+     * which has been ordered following the Morton-Z curve order.
+     */
+
+    template < int dim, int spacedim>
+    std::vector<BoundingBox<spacedim>>
+                                    compute_locally_owned_bounding_box
+                                    ( const parallel::distributed::Triangulation< dim, spacedim > &distributed_tria);
   }
 
 
