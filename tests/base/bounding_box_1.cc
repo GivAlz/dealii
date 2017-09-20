@@ -134,4 +134,6 @@ int main()
 
   deallog << std::endl << "Test for dimension 3, unitary box" << std::endl;
   test_unitary();
+
+  return 0;
 }

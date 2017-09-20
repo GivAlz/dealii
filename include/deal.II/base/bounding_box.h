@@ -85,7 +85,7 @@ private:
   std::pair<Point<spacedim, Number>,Point<spacedim,Number>> boundary_points;
 };
 
-/*------------------------------- Inline functions: Point ---------------------------*/
+/*------------------------------- Inline functions: BoundingBox ---------------------------*/
 
 #ifndef DOXYGEN
 
