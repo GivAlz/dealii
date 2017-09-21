@@ -30,10 +30,6 @@
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/distributed/grid_tools.h>
 
-#include <vector>
-
-//#include "/home/giovy/opt/src/dealii_fork/include/deal.II/distributed/grid_tools.h"
-
 template <int dim, int spacedim=dim >
 void test_hypercube()
 {

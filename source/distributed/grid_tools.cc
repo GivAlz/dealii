@@ -59,7 +59,7 @@ namespace parallel
         --lastc;
 
       //Degenerate cases: only one owned cell or we're at level 0
-      if (lastc==firstc || firstc->level()*lastc->level()==0)
+      if (lastc==firstc)
         {
           Point<spacedim> minp = firstc->center();
           Point<spacedim> maxp = firstc->center();
@@ -75,6 +75,41 @@ namespace parallel
           vBBox.push_back(BoundingBox<spacedim>(std::make_pair( minp, maxp )));
           return vBBox;
         }
+
+#ifdef DEBUG
+      typename parallel::distributed::Triangulation< dim, spacedim >::active_cell_iterator
+      ic = distributed_tria.begin_active();
+      typename parallel::distributed::Triangulation< dim, spacedim >::active_cell_iterator
+      endc = distributed_tria.last_active();
+      bool outsidec = true;
+      for(;ic<endc;++ic)
+          if(ic<lastc || ic>lastc)
+          Assert( ! ic->is_locally_owned(),
+                 "Error: locally owned cells outside the studied interval")
+#endif
+
+      int min_level = std::min (firstc->level(), lastc->level() );
+
+      for (patch_cell=patch.begin(); patch_cell!=patch.end () ; ++patch_cell)
+        {
+          // If the refinement level of each cell i the loop be equal to the min_level, so that
+          // that cell inserted into the set of uniform_cells, as the set of cells with the coarsest common refinement level
+          if ((*patch_cell)->level() == min_level)
+            uniform_cells.insert (*patch_cell);
+          else
+            // If not, it asks for the parent of the cell, until it finds the parent cell
+            // with the refinement level equal to the min_level and inserts that parent cell into the
+            // the set of uniform_cells, as the set of cells with the coarsest common refinement level.
+            {
+              typename Container::cell_iterator parent = *patch_cell;
+
+              while (parent->level() > min_level)
+                parent = parent-> parent();
+              uniform_cells.insert (parent);
+            }
+      }
+
+
 
       //Now we look for parentc: the coarsest cell containing both firstc and lastc
       //This is the coarsest level at which we can separate the connected components

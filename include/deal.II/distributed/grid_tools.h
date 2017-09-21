@@ -143,9 +143,9 @@ namespace parallel
      */
 
     template < int dim, int spacedim>
-    std::vector<BoundingBox<spacedim>>
-                                    compute_locally_owned_bounding_box
-                                    ( const parallel::distributed::Triangulation< dim, spacedim > &distributed_tria);
+    std::vector< BoundingBox<spacedim> >
+    compute_locally_owned_bounding_box
+    ( const parallel::distributed::Triangulation< dim, spacedim > &distributed_tria);
   }
 
 
