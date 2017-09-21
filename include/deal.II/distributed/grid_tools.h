@@ -133,13 +133,10 @@ namespace parallel
                                   std::function<void (const typename MeshType::active_cell_iterator &, const DataType &)> unpack);
 
     /**
-     * Compute a vector of bounding boxes which approximates the space occupied by
-     * the locally_owned cells. The number of bounding boxes (two or more) tries
-     * to catch the general shape of the space occupied by the locally_owned_cells,
+     * Compute a vector of bounding boxes which encloses the space occupied by
+     * the locally owned cells. The number of bounding boxes (two or more) tries
+     * to catch the general shape of the space occupied by the locally owned cells,
      * describing connected components and bigger shape variations.
-     *
-     * This function is meant to work only with a parallel::distributed::Triangulation
-     * which has been ordered following the Morton-Z curve order.
      */
 
     template < int dim, int spacedim>

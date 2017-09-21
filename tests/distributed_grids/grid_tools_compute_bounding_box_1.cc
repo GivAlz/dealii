@@ -43,6 +43,11 @@ void test_hypercube()
   std::vector<BoundingBox<spacedim>> local_bbox =
                                     parallel::GridTools::compute_locally_owned_bounding_box<spacedim>(tria);
 
+  if(local_bbox.size()==0)
+  {
+      deallog << "ERROR: no bounding box was computed!" << std::endl;
+      return;
+  }
   deallog << "Computed bounding boxes:" << std::endl;
 
   for (unsigned int i=0; i< local_bbox.size(); ++i)
