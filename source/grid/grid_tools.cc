@@ -2477,6 +2477,172 @@ next_cell:
 
 
 
+  template <int dim, template <int, int> class MeshType, int spacedim>
+  unsigned int
+  compute_point_locations
+  (const MeshType<dim,spacedim>                                                &tria,
+   const std::vector< Point<dim> >                                             &points,
+   std::vector<typename MeshType<dim,spacedim>::active_cell_iterator >         &cells,
+   std::vector<std::vector<Point<dim> > >                                      &qpoints,
+   std::vector<std::vector<unsigned int> >                                     &maps,
+   const Mapping<dim,spacedim>                                                 &mapping)
+  {
+    // How many points are here?
+    const unsigned int np = points.size();
+
+    // Reset output maps.
+    cells.clear();
+    qpoints.clear();
+    maps.clear();
+
+    // Now the easy case.
+    if (np==0) return 0;
+
+    // Keep track of the points we
+    // found
+    std::vector<bool> point_flags(np, false);
+
+    // Set this to true until all
+    // points have been classified
+    bool left_over = true;
+
+    // Current quadrature point
+    typename MeshType<dim,spacedim>::active_cell_iterator cell = tria.begin_active();
+
+    // see if the point is
+    // inside the
+    // cell. there are two
+    // ways that
+    // transform_real_to_unit_cell
+    // can indicate that a
+    // point is outside: by
+    // returning
+    // coordinates that lie
+    // outside the
+    // reference cell, or
+    // by throwing an
+    // exception. handle
+    // both
+    Point< dim > qp =  mapping.transform_real_to_unit_cell(cell, points[0]);
+    if ( ! GeometryInfo<dim>::is_inside_unit_cell(qp) )
+      {
+        const std::pair<typename dealii::internal::ActiveCellIterator
+            <dim, dim, MeshType<dim,spacedim>>::type, Point<dim> >
+        my_pair  = GridTools::find_active_cell_around_point
+                   (mapping, tria, points[0]);
+        AssertThrow (!my_pair.first->is_artificial(),
+                     ExcMessage ("Point not available here"));
+
+        cell = my_pair.first;
+        qp = my_pair.second;
+        point_flags[0] = true;
+      }
+
+    // check that the cell is available:
+    AssertThrow (!cell->is_artificial(),
+                 ExcMessage ("Point not available here"));
+
+    // Put in the first point.
+    cells.push_back(cell);
+    qpoints.emplace_back(1, qp);
+    maps.emplace_back(1, 0);
+
+
+    // Check if we need to do anything else
+    if (points.size() > 1)
+      left_over = true;
+    else
+      left_over = false;
+
+
+    // This is the first index of a non processed point
+    unsigned int first_outside = 1;
+
+    // And this is the index of the current cell
+    unsigned int c = 0;
+
+    while (left_over == true)
+      {
+        // Assume this is the last one
+        left_over = false;
+        Assert(first_outside < np,
+               ExcIndexRange(first_outside, 0, np));
+
+        // If we found one in this cell, keep looking in the same cell
+        for (unsigned int p=first_outside; p<np; ++p)
+          if (point_flags[p] == false)
+            {
+              // same logic as above
+              qp =  mapping.transform_real_to_unit_cell(cells[c], points[p]);
+              if (GeometryInfo<dim>::is_inside_unit_cell(qp))
+                {
+                  point_flags[p] = true;
+                  qpoints[c].push_back(qp);
+                  maps[c].push_back(p);
+                }
+              else
+                {
+                  // Set things up for next round
+                  if (left_over == false)
+                    first_outside = p;
+                  left_over = true;
+                }
+            }
+        // If we got here and there is
+        // no left over, we are
+        // done. Else we need to find
+        // the next cell
+        if (left_over == true)
+          {
+            const std::pair<typename dealii::internal::ActiveCellIterator
+                <dim, dim, MeshType<dim,spacedim> >::type, Point<dim> > my_pair
+              = GridTools::find_active_cell_around_point (mapping, tria, points[first_outside]);
+            AssertThrow (!my_pair.first->is_artificial(),
+                         ExcMessage ("Point not available here"));
+
+            cells.push_back(my_pair.first);
+            qpoints.emplace_back(1, my_pair.second);
+            maps.emplace_back(1, first_outside);
+            c++;
+            point_flags[first_outside] = true;
+            // And check if we can exit the loop now
+            if (first_outside == np-1)
+              left_over = false;
+          }
+      }
+
+    // Augment of one the number of cells
+    ++c;
+    // Debug Checking
+    Assert(c == cells.size(), ExcInternalError());
+
+    Assert(c == maps.size(),
+           ExcDimensionMismatch(c, maps.size()));
+
+    Assert(c == qpoints.size(),
+           ExcDimensionMismatch(c, qpoints.size()));
+
+#ifdef DEBUG
+    unsigned int qps = 0;
+    // The number of points in all
+    // the cells must be the same as
+    // the number of points we
+    // started off from.
+    for (unsigned int n=0; n<c; ++n)
+      {
+        Assert(qpoints[n].size() == maps[n].size(),
+               ExcDimensionMismatch(qpoints[n].size(), maps[n].size()));
+        qps += qpoints[n].size();
+      }
+    Assert(qps == np,
+           ExcDimensionMismatch(qps, np));
+#endif
+
+    return c;
+  }
+
+
+
   template <int dim, int spacedim>
   void
   get_face_connectivity_of_cells (const Triangulation<dim,spacedim> &triangulation,

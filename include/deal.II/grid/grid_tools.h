@@ -27,6 +27,8 @@
 #include <deal.II/grid/tria_iterator.h>
 #include <deal.II/hp/dof_handler.h>
 
+#include <boost/optional.hpp>
+
 #include <bitset>
 #include <list>
 #include <set>
@@ -1179,6 +1181,29 @@ namespace GridTools
   std::map<unsigned int, types::global_vertex_index>
   compute_local_to_global_vertex_index_map(
     const parallel::distributed::Triangulation<dim,spacedim> &triangulation);
+
+  /**
+   * Create quadrature rules. Given a triangulation @p tria and a mapping
+   * @p mapping, this function groups the points into blocks that live in
+   * the same cell, and fills up three vectors: @p cells, @p qpoints and
+   * @p maps. The first is a list of the cells that contain the points,
+   * the second is a list of quadrature points matching each cell of the
+   * first list, and the third contains the index of the given quadrature
+   * points, i.e., @p points[maps[3][4]] ends up as the 5th quadrature
+   * point in the 4th cell. This is where optimization would help. This
+   * function returns the number of cells that contain the given set of
+   * points.
+   */
+  template <int dim, template <int, int> class MeshType, int spacedim>
+  unsigned int
+  compute_point_locations
+  (const MeshType<dim,spacedim>                                                &tria,
+   const std::vector< Point<dim> >                                             &points,
+   std::vector<typename MeshType<dim,spacedim>::active_cell_iterator >         &cells,
+   std::vector<std::vector<Point<dim> > >                                      &qpoints,
+   std::vector<std::vector<unsigned int> >                                     &maps,
+   const Mapping<dim,spacedim>                                                 &mapping =
+   StaticMappingQ1<dim,spacedim>::mapping);
 
   /**
    * Return the highest value among ratios between extents in each of the
