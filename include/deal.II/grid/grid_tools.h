@@ -1198,12 +1198,12 @@ namespace GridTools
   unsigned int
   compute_point_locations
   (const MeshType<dim,spacedim>                                                &tria,
-   const std::vector< Point<dim> >                                             &points,
+   const std::vector< Point<spacedim> >                                        &points,
    std::vector<typename MeshType<dim,spacedim>::active_cell_iterator >         &cells,
    std::vector<std::vector<Point<dim> > >                                      &qpoints,
    std::vector<std::vector<unsigned int> >                                     &maps,
    const Mapping<dim,spacedim>                                                 &mapping =
-   StaticMappingQ1<dim,spacedim>::mapping);
+     StaticMappingQ1<dim,spacedim>::mapping);
 
   /**
    * Return the highest value among ratios between extents in each of the

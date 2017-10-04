@@ -2481,7 +2481,7 @@ next_cell:
   unsigned int
   compute_point_locations
   (const MeshType<dim,spacedim>                                                &tria,
-   const std::vector< Point<dim> >                                             &points,
+   const std::vector<Point<spacedim> >                                         &points,
    std::vector<typename MeshType<dim,spacedim>::active_cell_iterator >         &cells,
    std::vector<std::vector<Point<dim> > >                                      &qpoints,
    std::vector<std::vector<unsigned int> >                                     &maps,
@@ -2527,9 +2527,9 @@ next_cell:
     if ( ! GeometryInfo<dim>::is_inside_unit_cell(qp) )
       {
         const std::pair<typename dealii::internal::ActiveCellIterator
-            <dim, dim, MeshType<dim,spacedim>>::type, Point<dim> >
-        my_pair  = GridTools::find_active_cell_around_point
-                   (mapping, tria, points[0]);
+        <dim, dim, MeshType<dim,spacedim>>::type, Point<dim> >
+                                        my_pair  = GridTools::find_active_cell_around_point
+                                                   (mapping, tria, points[0]);
         AssertThrow (!my_pair.first->is_artificial(),
                      ExcMessage ("Point not available here"));
 
@@ -2595,7 +2595,7 @@ next_cell:
         if (left_over == true)
           {
             const std::pair<typename dealii::internal::ActiveCellIterator
-                <dim, dim, MeshType<dim,spacedim> >::type, Point<dim> > my_pair
+            <dim, dim, MeshType<dim,spacedim> >::type, Point<dim> > my_pair
               = GridTools::find_active_cell_around_point (mapping, tria, points[first_outside]);
             AssertThrow (!my_pair.first->is_artificial(),
                          ExcMessage ("Point not available here"));

@@ -593,7 +593,7 @@ namespace Functions
            ExcDimensionMismatch(qps, np));
 #endif
 
-      return c;
+    return c;
   }
 
 
