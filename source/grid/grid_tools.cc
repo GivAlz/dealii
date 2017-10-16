@@ -2523,9 +2523,29 @@ next_cell:
     // by throwing an
     // exception. handle
     // both
-    Point< dim > qp =  mapping.transform_real_to_unit_cell(cell, points[0]);
-    if ( ! GeometryInfo<dim>::is_inside_unit_cell(qp) )
+    Point< dim > qp;
+    try
       {
+        qp = mapping.transform_real_to_unit_cell(cell, points[0]);
+        if ( ! GeometryInfo<dim>::is_inside_unit_cell(qp) )
+          {
+            const std::pair<typename dealii::internal::ActiveCellIterator
+            <dim, dim, MeshType<dim,spacedim>>::type, Point<dim> >
+                                            my_pair  = GridTools::find_active_cell_around_point
+                                                       (mapping, tria, points[0]);
+            AssertThrow (!my_pair.first->is_artificial(),
+                         ExcMessage ("Point not available here"));
+
+            cell = my_pair.first;
+            qp = my_pair.second;
+            point_flags[0] = true;
+          }
+      }
+    catch (const typename Mapping<dim>::ExcTransformationFailed &)
+      {
+        // transformation failed, so
+        // assume the point is
+        // outside
         const std::pair<typename dealii::internal::ActiveCellIterator
         <dim, dim, MeshType<dim,spacedim>>::type, Point<dim> >
                                         my_pair  = GridTools::find_active_cell_around_point
@@ -2573,14 +2593,24 @@ next_cell:
           if (point_flags[p] == false)
             {
               // same logic as above
-              qp =  mapping.transform_real_to_unit_cell(cells[c], points[p]);
-              if (GeometryInfo<dim>::is_inside_unit_cell(qp))
+              try
                 {
-                  point_flags[p] = true;
-                  qpoints[c].push_back(qp);
-                  maps[c].push_back(p);
+                  qp =  mapping.transform_real_to_unit_cell(cells[c], points[p]);
+                  if (GeometryInfo<dim>::is_inside_unit_cell(qp))
+                    {
+                      point_flags[p] = true;
+                      qpoints[c].push_back(qp);
+                      maps[c].push_back(p);
+                    }
+                  else
+                    {
+                      // Set things up for next round
+                      if (left_over == false)
+                        first_outside = p;
+                      left_over = true;
+                    }
                 }
-              else
+              catch (const typename Mapping<dim>::ExcTransformationFailed &)
                 {
                   // Set things up for next round
                   if (left_over == false)
