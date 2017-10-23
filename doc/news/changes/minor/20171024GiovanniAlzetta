@@ -1,0 +1,3 @@
+Added: Function compute point locations to grid tools which uses Cache and a test for it.
+<br>
+(Giovanni Alzetta, 2017/10/24)

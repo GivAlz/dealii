@@ -32,6 +32,7 @@
 #include <bitset>
 #include <list>
 #include <set>
+#include <tuple>
 
 DEAL_II_NAMESPACE_OPEN
 
@@ -604,6 +605,26 @@ namespace GridTools
    * @name Finding cells and vertices of a triangulation
    */
   /*@{*/
+
+  /**
+   * Given a @p cache and a list of @p points create the quadrature rules. This
+   * function returns a tuple containing the following elements:
+   * - The first ( get<0>) is a vector of the cells containing at least one of the @p points
+   * - The second, call it qpoints, is a vector of vectors. Each entry contains the quadrature points contained in the cell fo cells
+   *  which has the same index.
+   * - The third, call it maps, contains the index of the given quadrature points, i.e., @p qpoints[maps[3][4]] ends up as the 5th
+   * quadrature point in the 4th cell.
+   *
+   * Notice: given the center of a cell points at distance greater then @p distance_factor * cell.diameter() are considered outside the cell.
+   * In some cases, such as curved meshes, this leads to cell's repetitions in the output tuple.
+   * To avoid this either enlarge @p distance_factor (depending on the regularity of the triangulation) and/or merge the repetitions
+   * contained in the output.
+   */
+  template <int dim, int spacedim>
+  std::tuple< std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator >, std::vector< std::vector< Point<dim> > >, std::vector<std::vector<unsigned int> > >
+  compute_point_locations(const Cache<dim,spacedim>                                         &cache,
+                          const std::vector<Point<spacedim> >                               &points,
+                          const double                                                      &distance_factor=0.5);
 
   /**
    * Return a map of index:Point<spacedim>, containing the used vertices of the

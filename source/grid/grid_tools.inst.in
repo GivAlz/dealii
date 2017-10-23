@@ -100,6 +100,7 @@ for (X : TRIANGULATION_AND_DOFHANDLERS; deal_II_dimension : DIMENSIONS ; deal_II
     compute_bounding_box (const X &,
                           const std::function<bool (const dealii::internal::ActiveCellIterator<deal_II_dimension, deal_II_space_dimension, X>::type&)> &);
 
+
     template
     std::list<std::pair<X::cell_iterator, X::cell_iterator> >
     get_finest_common_cells (const X &mesh_1,
@@ -139,8 +140,13 @@ for (deal_II_dimension : DIMENSIONS ; deal_II_space_dimension : SPACE_DIMENSIONS
                                       const typename Triangulation<deal_II_dimension,deal_II_space_dimension>::active_cell_iterator &,
                                       const std::vector<bool>  &);
 
-
-                       \}
+        template
+        std::tuple< std::vector< typename Triangulation<deal_II_dimension,deal_II_space_dimension>::active_cell_iterator >,
+                    std::vector< std::vector< Point<deal_II_dimension> > >, std::vector< std::vector<unsigned int> > >
+        compute_point_locations(const Cache<deal_II_dimension,deal_II_space_dimension>&,
+                                const std::vector<Point<deal_II_space_dimension> > &,
+                                const double &);
+                                                                                                    \}
 
 #endif
 }
