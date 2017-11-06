@@ -50,6 +50,43 @@ namespace parallel
   namespace GridTools
   {
     /**
+     * Distributed compute point locations: similarly to
+     * GridTools::compute_point_locations given a @p cache and a list of
+     * @p local_points create the quadrature rules for a distributed triangulation.
+     *
+     * @param[in] cache a GridTools::Cache object
+     * @param[in] points the array of points owned by the current process. Every
+     *  process can have a different array of points which can be empty and not
+     *  contained within the locally owned part of the triangulation.
+     * @param[out] tuple containing the quadrature information
+     *
+     * The elements of the output tuple are:
+     * - cells : a vector of a vector cells of the all cells containing at
+     *  least a point.
+     * - qpoints : a vector of vector of points. Each entry contains the locally owned
+     *  points transformed in the unit cell.
+     * - maps : a vector indices of vector of integers, containing the mapping between
+     *  local numbering in qpoints, and returned points.
+     * - points : a vector of points contained inside the locally owned part of
+     *  the mesh.
+     * - owners : a vector containing the rank of the process owning the corresponding
+     *  element of points.
+     *
+     * @author Giovanni Alzetta, 2017
+     */
+    template <int dim, int spacedim>
+    std::tuple<
+        std::vector< typename Triangulation<dim, spacedim>::active_cell_iterator >,
+        std::vector< std::vector< Point<dim> > >,
+        std::vector< std::vector<unsigned int> >,
+        std::vector< std::vector< Point<spacedim> > >,
+        std::vector< unsigned int >
+        >
+        distributed_compute_point_locations
+                                (const Cache<dim,spacedim>                &cache,
+                                const std::vector<Point<spacedim> >      &local_points)
+
+    /**
      * Exchange arbitrary data of type @p DataType provided by the function
      * objects from locally owned cells to ghost cells on other processors.
      *
