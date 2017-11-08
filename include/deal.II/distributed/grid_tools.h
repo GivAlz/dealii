@@ -49,6 +49,7 @@ namespace parallel
    */
   namespace GridTools
   {
+#ifdef DEAL_II_WITH_MPI
     /**
      * Distributed compute point locations: similarly to
      * GridTools::compute_point_locations given a @p cache and a list of
@@ -84,7 +85,148 @@ namespace parallel
         >
         distributed_compute_point_locations
                                 (const Cache<dim,spacedim>                &cache,
-                                const std::vector<Point<spacedim> >      &local_points)
+                                 const std::vector<Point<spacedim> >      &local_points,
+                                 MPI_Comm                              mpi_communicator)
+        // Developing it here for now, to avoid conflicts on many diffrerent files...
+    {
+      // Step 1: global description of the mesh using bounding boxes TO DO CACHE PART
+      std::vector< std::vector< BoundingBox<spacedim> > >
+          global_bboxes = cache.get_global_bboxes(); // this shall get the bounding boxes describing the whole space
+
+      // Step 2: Using the bounding boxes to guess the
+      // owner of each  point in local_points
+      unsigned int n_procs = Utilities::MPI::n_mpi_processes(mpi_communicator);
+      unsigned int proc = Utilities::MPI::this_mpi_process(mpi_communicator);
+
+      std::vector< std::vector< Point<spacedim> > point_owners(n_procs);
+      for(const Point<spacedim> & pt: local_points)
+      {
+        bool possibly_local = false;
+        // Check if the point is in the current part of the mesh
+        for(const auto & bbox: global_bboxes[proc])
+          if(bbox->point_inside(pt))
+          {
+            point_owners[proc].push_back(pt);
+            possibly_local = true;
+            break;
+          }
+
+        if(possibly_local)
+          continue;
+        else
+          for(unsigned int rk=0;rk<n_procs;++rk)
+            if(rk!=proc)
+              for(const auto & bbox: global_bboxes[rk])
+                if(bbox->point_inside(pt))
+                {
+                  point_owners[rk].push_back(pt);
+                  break;
+                }
+      }
+
+      // Step 3: Use GridTools::compute_point_locatios to study local points
+      // and handle points found in artificial/ghost cells
+      auto local_cell_qpoint_map = GridTools::compute_point_locations(cache,point_owners[proc]);
+      for(unsigned int c=0; c< std::get<0>(local_cell_qpoint_map).size(); ++c)
+      {
+        if( std::get<0>(local_cell_qpoint_map)[c]->is_artificial())
+          for(unsigned int i=0; i<std::get<1>(local_cell_qpoint_map)[c].size(); ++i)
+            for(unsigned int rk=0;rk<n_procs;++rk)
+                if(rk!=proc)
+                  for(const auto & bbox: global_bboxes[rk])
+                    if(bbox->point_inside(local_points(std::get<2>(local_cell_qpoint_map)[c][i])))
+                    {
+                      point_owners[rk].push_back
+                          (local_points(std::get<2>(local_cell_qpoint_map)[c][i]));
+                      break;
+                    }
+        // Points in ghost cells are correctly indentified by their subdomain id
+        else if( std::get<0>(local_cell_qpoint_map)[c]->is_ghost() )
+        {
+          unsigned int rk = std::get<0>(local_cell_qpoint_map)[c]->subdomain_id();
+          for(unsigned int i=0; i<std::get<1>(local_cell_qpoint_map)[c].size(); ++i)
+              point_owners[rk].push_back
+                  (local_points(std::get<2>(local_cell_qpoint_map)[c][i]));
+          // Actually the transfomed qpoint is correct, but this simpler to handle
+          // I don't think transferring the data is much faster than re computing
+          // in loco...this is a good question, I guess
+        }
+      }
+
+      // Step 4: sending/receiving points
+      // Begin by communicating the number of points to be sent out
+      std::vector< unsigned int > send_amount(n_procs,0);
+      // How many points need to be communicated with each process ?
+      for(unsigned int rk=0; rk< n_procs; ++rk)
+        if(rk!= proc)
+        send_amount[rk] = point_owners[rk].size();
+
+      std::vector< unsigned int > receive_amount(n_procs);
+
+      MPI_Alltoall(&send_amount[0], 1, MPI_UNSIGNED,
+                   &receive_amount[0], 1, MPI_UNSIGNED,
+                   mpi_communicator);
+
+      // Sending/receiving part
+      unsigned int count = sizeof(Point<spacedim>)/sizeof(double);
+      static_assert(sizeof(Point<spacedim>)==count*sizeof(double),
+                    "Error in point type creation: size not matching");
+      MPI_Datatype ptype;
+      MPI_Type_contiguous(count,MPI_DOUBLE,&ptype);
+      MPI_Type_commit(&ptype);
+
+      unsigned int sum_received = 0;
+
+      std::vector< Point<spacedim> > received_points;
+      std::vector< unsigned int > received_rank;
+
+      // One to one communications between processes
+      for(unsigned int rk=0; rk < n_procs; ++rk)
+      {
+        if(rk != proc)
+        {
+          // Sending part
+          if(send_amount[rk] != 0)
+          {
+            MPI_Request request;
+            MPI_Isend(&(point_owners[rk][0]), send_amount[rk], ptype,
+                     rk, (1+rk)*proc, mpi_communicator, &request);
+          }
+          // Receiving part
+          if(receive_amount[rk] != 0)
+          {
+            MPI_Request request;
+            received_points.resize(sum_received + receive_amount[rk]);
+            MPI_Irecv(&(received_points[sum_received]), receive_amount[rk], ptype,
+                     proc, (1+proc)*rk, mpi_communicator, &request);
+            sum_received += receive_amount[rk];
+            std::vector<unsigned int> rks(receive_amount[rk],rk);
+            received_rank.insert(received_rank.end(), rks.begin(), rks.end());
+          }
+        }
+      }
+
+      // Step 5: running compute point locations on the received points
+      // and creating output
+      std::tuple<
+          std::vector< typename Triangulation<dim, spacedim>::active_cell_iterator >,
+          std::vector< std::vector< Point<dim> > >,
+          std::vector< std::vector<unsigned int> >,
+          std::vector< std::vector< Point<spacedim> > >,
+          std::vector< unsigned int >
+          > out_cell_qpt_map_pt_rk; // output vector
+
+      std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator >,
+          std::vector< std::vector< Point<dim> > >,
+          std::vector< std::vector<unsigned int> > > other_cell_qpoint_map =
+            GridTools::compute_point_locations(cache,received_points);
+
+      // Now prepare output...its actually a pain to mix local_compute_point_locations and the new one...
+
+      return out_cell_qpt_map_pt_rk;
+    }
+#endif // DEAL_II_WITH_MPI .,..actually should move it inside and write a nonmpi version
+       // which is a sort of a wrapper for compute_pt_loc (and put #endif in better place)
 
     /**
      * Exchange arbitrary data of type @p DataType provided by the function
