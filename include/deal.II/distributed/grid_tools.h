@@ -80,7 +80,7 @@ namespace parallel
         std::vector< typename Triangulation<dim, spacedim>::active_cell_iterator >,
         std::vector< std::vector< Point<dim> > >,
         std::vector< std::vector<unsigned int> >,
-        std::vector< std::vector< Point<spacedim> > >,
+        std::vector< Point<spacedim> >,
         std::vector< unsigned int >
         >
         distributed_compute_point_locations
@@ -212,16 +212,67 @@ namespace parallel
           std::vector< typename Triangulation<dim, spacedim>::active_cell_iterator >,
           std::vector< std::vector< Point<dim> > >,
           std::vector< std::vector<unsigned int> >,
-          std::vector< std::vector< Point<spacedim> > >,
+          std::vector< Point<spacedim> >,
           std::vector< unsigned int >
           > out_cell_qpt_map_pt_rk; // output vector
 
       std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator >,
-          std::vector< std::vector< Point<dim> > >,
-          std::vector< std::vector<unsigned int> > > other_cell_qpoint_map =
+          std::vector< Point<dim> >,
+          std::vector< unsigned int> > other_cell_qpoint_map =
             GridTools::compute_point_locations(cache,received_points);
 
-      // Now prepare output...its actually a pain to mix local_compute_point_locations and the new one...
+      // Prepare output
+      std::vector< bool > visited_cells(std::get<1>(other_cell_qpoint_map).size(),false);
+      unsigned int shift_idx = 0;
+      unsigned int pt_idx = 0;
+      for(unsigned int c=0; c< std::get<0>(local_cell_qpoint_map).size(); ++c)
+      {
+        // Now only locally owned cells are considered
+        if( std::get<0>(local_cell_qpoint_map)[c]->is_locally_owned())
+        {
+          // Adding the cell, qpoints and ranks
+          std::get<0>(out_cell_qpt_map_pt_rk).push_back(std::get<0>(local_cell_qpoint_map)[c]);
+          std::get<1>(out_cell_qpt_map_pt_rk).push_back(std::get<1>(local_cell_qpoint_map)[c]);
+          std::vector<unsigned int> my_ranks(std::get<1>(local_cell_qpoint_map)[c].size(),proc);
+          std::get<4>(out_cell_qpt_map_pt_rk).insert(
+                std::get<4>(out_cell_qpt_map_pt_rk).end(),my_ranks.begin(),my_ranks+my_ranks.end());
+          // Creating a new element for the other components of the tuple
+          std::get<2>(out_cell_qpt_map_pt_rk).emplace_back(1,pt_idx++);
+          std::get<3>(out_cell_qpt_map_pt_rk)
+              .push_back(1,local_points[std::get<2>(local_cell_qpoint_map)[c][0]]);
+
+          for(unsigned int i=1; i < std::get<1>(local_cell_qpoint_map)[c].size(); ++i)
+          {
+              std::get<2>(out_cell_qpt_map_pt_rk)[c-shift_idx]
+                  .push_back(pt_idx++);
+              std::get<3>(out_cell_qpt_map_pt_rk)[c-shift_idx]
+                  .push_back(local_points[std::get<2>(local_cell_qpoint_map)[c][i]]);
+          }
+
+          // Checking if the cell is present also in other_cell_qpoint_map
+          auto it = std::find(std::get<0>(other_cell_qpoint_map).begin(),std::get<0>(other_cell_qpoint_map).end(),
+                    std::get<0>(local_cell_qpoint_map)[c]);
+          if(it != std::get<0>(other_cell_qpoint_map).end())
+          {
+            unsigned int c_other = std::distance(std::get<0>(other_cell_qpoint_map).begin(),it);
+            visited_cells[c_other] = true;
+            std::get<0>(out_cell_qpt_map_pt_rk).push_back(*it);
+            std::get<1>(out_cell_qpt_map_pt_rk).
+                back().push_back(
+                  std::get<1>(other_cell_qpoint_map)[c_other]);
+
+            for(unsigned int i=0; i < std::get<1>(other_cell_qpoint_map)[c_other].size(); ++i)
+            {
+                std::get<2>(out_cell_qpt_map_pt_rk)[c-shift_idx]
+                    .push_back(pt_idx++);
+                std::get<3>(out_cell_qpt_map_pt_rk)[c-shift_idx]
+                    .push_back(local_points[std::get<2>(other_cell_qpoint_map)[c_other][i]]);
+            }
+          }
+        }
+        else
+          ++shift_idx;
+      }
 
       return out_cell_qpt_map_pt_rk;
     }
