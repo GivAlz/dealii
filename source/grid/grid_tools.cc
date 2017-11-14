@@ -381,6 +381,103 @@ namespace GridTools
 
 
 
+  template< int dim, int spacedim >
+  std::vector<int> find_point_owner( const Cache<dim,spacedim>   &cache,
+                                     const std::vector< std::vector< BoundingBox<spacedim> > >
+                                     &global_bboxes,
+                                     const std::vector< Point<spacedim> >         &local_points,
+                                     MPI_Comm                                      mpi_communicator)
+  {
+#ifndef DEAL_II_WITH_MPI
+    (void)cache;
+    (void)global_bboxes;
+    (void)local_points;
+    (void)mpi_communicator;
+    Assert(false, ExcMessage("GridTools::find_point_owner() requires MPI."));
+#else
+    // Step 1: Using the bounding boxes to guess the
+    // owner of each  point in local_points
+    auto guess_result = GridTools::guess_point_owner(global_bboxes,points);
+    const auto &map_owners_found = std::get<1>(guess_result);
+    const auto &map_owners_guessed = std::get<2>(map_owners_guessed);
+
+    // Step 2: using the communicator to find which processes own
+    // the guessed points
+    unsigned int n_procs = Utilities::MPI::n_mpi_processes(mpi_communicator);
+    unsigned int proc = Utilities::MPI::this_mpi_process(mpi_communicator);
+
+    // Sending map_owners_found
+
+    // Begin by communicating the number of points to be sent out
+    std::vector< unsigned int > send_amount(n_procs,0);
+    // How many points need to be communicated with each process ?
+    for (unsigned int rk=0; rk< n_procs; ++rk)
+      send_amount[rk] = map_owners_guessed.find(rk).size();
+
+    std::vector< unsigned int > receive_amount(n_procs);
+    MPI_Alltoall(&send_amount[0], 1, MPI_UNSIGNED,
+                 &receive_amount[0], 1, MPI_UNSIGNED,
+                 mpi_communicator);
+
+    // Sending/receiving part
+    unsigned int count = sizeof(Point<spacedim>)/sizeof(double);
+    static_assert(sizeof(Point<spacedim>)==count*sizeof(double),
+                  "Error in point type creation: size not matching");
+    MPI_Datatype ptype;
+    MPI_Type_contiguous(count,MPI_DOUBLE,&ptype);
+    MPI_Type_commit(&ptype);
+
+    unsigned int sum_received = 0;
+
+    std::vector< Point<spacedim> > received_points;
+    std::vector< unsigned int > received_rank;
+
+    // One to one communications between processes
+    for (unsigned int rk=0; rk < n_procs; ++rk)
+      {
+        // Sending part
+        if (send_amount[rk] != 0)
+          {
+            MPI_Request request;
+            MPI_Isend(&(point_owners[rk][0]), send_amount[rk], ptype,
+                      rk, (1+rk)*proc, mpi_communicator, &request);
+          }
+        // Receiving part
+        if (receive_amount[rk] != 0)
+          {
+            MPI_Request request;
+            received_points.resize(sum_received + receive_amount[rk]);
+            MPI_Irecv(&(received_points[sum_received]), receive_amount[rk], ptype,
+                      proc, (1+proc)*rk, mpi_communicator, &request);
+            sum_received += receive_amount[rk];
+            std::vector<unsigned int> rks(receive_amount[rk],rk);
+            received_rank.insert(received_rank.end(), rks.begin(), rks.end());
+          }
+      }
+
+    MPI_Barrier( mpi_communicator );
+    std::vector< unsigned int > point_ownership(received_rank.size());
+
+    // Once the points have been received check if they're over the
+    // locally owned part of the mesh
+    auto cell_hint = cache.get_triangulation().begin_active();
+
+    for (unsigned int p=0; p< received_points.size(); ++p)
+      {
+        cell_hint = GridTools::find_active_cell_around_point( cache, received_points[p], cell_hint);
+        if (cell_hint.is_locally_owned())
+          point_ownership[p] = 1;
+        else
+          point_ownership[p] = 0;
+      }
+
+    // Communicating back the points we own
+
+
+  }
+
+
+
   template <int dim, int spacedim>
   void
   delete_unused_vertices (std::vector<Point<spacedim> >    &vertices,

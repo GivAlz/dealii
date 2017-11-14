@@ -1239,6 +1239,29 @@ namespace GridTools
 
 
   /**
+   * Given an array of points and the global bounding box description obtained using
+   * GridTools::compute_mesh_predicate_bounding_box, uses GridTools::guess_point_owner
+   * and communication to find the owner of each point. In addition to the input
+   * parameters of GridTools::guess_point_owner there's:
+   *
+   * @param[in] cache The triangulation's cache
+   * @param[in] mpi_communicator The communicator used.
+   *
+   * @param[out] A vector of integers of length <code>local_points.size()</code>
+   *   whose i-th entry contains the rank of the process owning @p local_points[i]
+   *
+   * @author Giovanni Alzetta, 2017
+   */
+  template< int dim, int spacedim >
+  std::vector< int >
+  find_point_owner ( const Cache<dim,spacedim>                   &cache,
+                     const std::vector< std::vector< BoundingBox<spacedim> > >
+                     &global_bboxes,
+                     const std::vector< Point<spacedim> >         &local_points,
+                     MPI_Comm                                      mpi_communicator);
+
+
+  /**
    * Return the adjacent cells of all the vertices. If a vertex is also a
    * hanging node, the associated coarse cell is also returned. The vertices
    * are ordered by the vertex index. This is the number returned by the
