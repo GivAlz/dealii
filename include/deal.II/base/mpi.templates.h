@@ -186,6 +186,133 @@ namespace Utilities
               std::copy(values.begin(), values.end(), output.begin());
           }
       }
+
+      template<typename T>
+      std::map<unsigned int, std::vector<T> >
+      send_and_receive(const MPI_Comm                                         &comm,
+                       const std::map<unsigned int, typename std::vector<T> > &objects_to_send)
+      {
+#ifndef DEAL_II_WITH_MPI
+        (void)comm;
+        (void)objects_to_send;
+        Assert (false, ExcMessage ("The function send_and_receive doesn't make"
+                                   "any sense if you do not have MPI enabled. "));
+#else
+        // Vector to store, in each entry, the number of objects the corresponding
+        // process shall send to this process
+
+        std::vector<unsigned int> who_to_send_to(objects_to_send.size());
+        unsigned int i=0;
+        for(const auto &obj : objects_to_send)
+          who_to_send_to[i++] = obj.first;
+        AssertDimension(who_to_send_to.size(), objects_to_send.size());
+
+        const auto who_to_receive_from =
+                Utilities::MPI::compute_point_to_point_communication_pattern(comm, who_to_send_to);
+
+        // How many point-to-point communications?
+        unsigned int number_p2p_send = who_to_send_to.size();
+        // Creating the MPI data type to send the object
+        unsigned int size_of_T = sizeof(T);
+        MPI_Datatype ptype;
+        MPI_Type_contiguous(size_of_T,MPI_CHAR,&ptype);
+        MPI_Type_commit(&ptype);
+        // Sending part
+        std::vector<MPI_Request> buffer_send_requests(number_p2p_send);
+        unsigned int req_n = 0; // index running on the request vector
+        for (const auto &rank_vec : objects_to_send)
+        {
+          const auto &rank = rank_vec.first;
+          const auto &obj  = rank_vec.second;
+          const int ierr = MPI_Isend(&(obj[0]), obj.size(), ptype,
+                    rank, 21, comm, &buffer_send_requests[req_n++]);
+          AssertThrowMPI(ierr);
+        }
+
+        // Receiving part
+        std::map<unsigned int, std::vector<T> > received_objects;
+        unsigned int number_p2p_recv = who_to_receive_from.size();
+        for (unsigned int idx=0; idx<number_p2p_recv; ++idx)
+          {
+            // Probe what's going on. Take data from the first available sender
+            MPI_Status status;
+            int ierr = MPI_Probe(MPI_ANY_SOURCE, 21, comm, &status);
+            AssertThrowMPI(ierr);
+            // Length of the message
+            int len;
+            ierr = MPI_Get_count(&status, ptype, &len);
+            AssertThrowMPI(ierr);
+            // Source rank
+            const unsigned int rank = status.MPI_SOURCE;
+            received_objects[rank].resize(len);
+            auto &obj = received_objects[rank];
+            ierr = MPI_Recv(&(obj[0]), len, ptype,
+                      rank, 21, comm, MPI_STATUS_IGNORE);
+            AssertThrowMPI(ierr);
+          }
+        int ierr = MPI_Waitall(number_p2p_send,&buffer_send_requests[0],MPI_STATUSES_IGNORE);
+        AssertThrowMPI(ierr);
+        return received_objects;
+#endif // deal.II with MPI
+      }
+
+
+
+      template<typename T>
+      std::vector<std::vector<T> >
+      send_and_receive(const MPI_Comm       &comm,
+                       const std::vector<T> &objects_to_send)
+      {
+#ifndef DEAL_II_WITH_MPI
+        (void)comm;
+        (void)objects_to_send;
+        Assert (false, ExcMessage ("The function send_and_receive doesn't make"
+                                   "any sense if you do not have MPI enabled. "));
+#else
+        auto n_procs = dealii::Utilities::MPI::n_mpi_processes(comm);
+
+        std::vector<unsigned int> rec_amount(n_procs, 0);
+        const int n_local_data = objects_to_send.size();
+
+        unsigned int size_of_T = sizeof(T);
+        MPI_Datatype ptype;
+        MPI_Type_contiguous(size_of_T,MPI_CHAR,&ptype);
+        MPI_Type_commit(&ptype);
+
+        // Vector to store the size of loc_data_array for every process
+        std::vector<int> size_all_data(n_procs,0);
+
+        // Exchanging the number of bboxes
+        MPI_Allgather(&n_local_data, 1, MPI_INT,
+                      &(size_all_data[0]), 1, MPI_INT,
+                      comm);
+
+        // Now computing the the displacement, relative to recvbuf,
+        // at which to store the incoming data
+        std::vector<int> rdispls(n_procs);
+        rdispls[0] = 0;
+        for (unsigned int i=1; i < n_procs; ++i)
+          rdispls[i] = rdispls[i-1] + size_all_data[i-1];
+
+        // Step 3: exchange the data and bounding boxes:
+        // Allocating a vector to contain all the received data
+        std::vector<T> data_array(rdispls.back() + size_all_data.back());
+
+        MPI_Allgatherv(&(objects_to_send[0]), n_local_data, ptype,
+                       &(data_array[0]), &(size_all_data[0]),
+                       &(rdispls[0]), ptype, comm);
+
+        std::vector<std::vector<T> > received_objects(n_procs);
+        for (unsigned int i= 0; i < n_procs; ++i)
+          {
+            received_objects[i].insert(received_objects[i].begin(),
+                                       data_array.begin()+rdispls[i],
+                                       data_array.begin()+rdispls[i]+size_all_data[i]);
+          }
+
+        return received_objects;
+#endif
+      }
     }
 
 
