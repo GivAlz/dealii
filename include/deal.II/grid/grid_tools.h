@@ -662,6 +662,54 @@ namespace GridTools
                               = typename Triangulation<dim, spacedim>::active_cell_iterator());
 
   /**
+   * Distributed compute point locations is a function similar to
+   * GridTools::compute_point_locations but working for a
+   * parallel::distributed::Triangulation . Given a @p cache and a list of
+   * @p local_points for each process, find the points lying on the locally owned
+   * part of the mesh and compute the quadrature rules for them.
+   *
+   * @param[in] cache a GridTools::Cache object
+   * @param[in] local_points the array of points owned by the current process. Every
+   *  process can have a different array of points which can be empty and not
+   *  contained within the locally owned part of the triangulation
+   * @param[in] the description of the locally owned part of the mesh made with bounding
+   *  boxes. It can be obtained from GridTools::compute_mesh_predicate_bounding_box
+   * @param[in] mpi_communicator the MPI communicator used for the triangulation
+   * @param[out] tuple containing the quadrature information
+   *
+   * The elements of the output tuple are:
+   * - cells : a vector of a vector cells of the all cells containing at
+   *  least a point.
+   * - qpoints : a vector of vector of points. Each entry contains the locally owned
+   *  points transformed in the unit cell.
+   * - maps : a vector indices of vector of integers, containing the mapping between
+   *  the numbering in qpoints, and the vector of local points of the process owning
+   *  the points.
+   * - points : a vector of vector of points. points[i][j] is the real point corresponding
+   *  to qpoints[i][j]
+   * - owners : a vector of vectors containing the rank of the process owning the
+   *  corresponding element of points.
+   *
+   * In a serial execution the first three elements of the tuple are the same
+   * as in GridTools::compute_point_locations .
+   *
+   * @author Giovanni Alzetta, 2017-2018
+   */
+  template <int dim, int spacedim>
+  std::tuple<
+  std::vector< typename Triangulation<dim, spacedim>::active_cell_iterator >,
+      std::vector< std::vector< Point<dim> > >,
+      std::vector< std::vector< unsigned int > >,
+      std::vector< std::vector< Point<spacedim> > >,
+      std::vector< std::vector< unsigned int > >
+      >
+      distributed_compute_point_locations
+      (const GridTools::Cache<dim,spacedim>                &cache,
+       const std::vector<Point<spacedim> >                 &local_points,
+       const std::vector< BoundingBox<spacedim> >          &local_bbox,
+       MPI_Comm                                             mpi_communicator);
+
+  /**
    * Return a map of index:Point<spacedim>, containing the used vertices of the
    * given `container`. The key of the returned map is the global index in the
    * triangulation. The used vertices are obtained by looping over all cells,
