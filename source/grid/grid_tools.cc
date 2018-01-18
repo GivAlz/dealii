@@ -5314,7 +5314,7 @@ next_cell:
       std::unordered_map< typename Triangulation<dim, spacedim>::active_cell_iterator,
           std::pair<std::vector<Point<dim> >,std::vector<unsigned int> >, cell_hash<dim,spacedim> >
           compute_point_locations_unmap(const GridTools::Cache<dim,spacedim>     &cache,
-                                        const std::vector<Point<spacedim> >            &points)
+                                        const std::vector<Point<spacedim> >      &points)
       {
         // How many points are here?
         const unsigned int np = points.size();
@@ -5421,16 +5421,11 @@ next_cell:
         const std::vector< std::vector< Point<dim> > >                                  &in_qpoints,
         const std::vector< std::vector<unsigned int> >                                  &in_maps,
         const std::vector< std::vector< Point<spacedim> > >                             &in_points,
-        const unsigned int                                                               in_rank,
-        const bool                                                                       check_owned
+        const unsigned int                                                               in_rank
       )
       {
-        // check owned = false means " do not check if the cells are locally owned "
-        // (because another process already checked it
-        // To write a nicer loop create "no check" which is true when no check has to be done
-        bool no_check = !check_owned;
+        // Assume all cells are to be added
         for (unsigned int c=0; c< in_cells.size(); ++c)
-          if ( no_check || in_cells[c]->is_locally_owned())
             {
               // Attempt to add a new cell with its relative data
               auto current_c = output_unmap.emplace(
@@ -5479,6 +5474,7 @@ next_cell:
       compute_and_classify_points(
         const GridTools::Cache<dim,spacedim>                              &cache,
         const std::vector<Point<spacedim> >                               &local_points,
+        const std::vector< unsigned int >                                &local_points_idx,
         std::unordered_map<
         typename Triangulation<dim, spacedim>::active_cell_iterator,
         std::tuple<
@@ -5495,7 +5491,7 @@ next_cell:
         std::vector< std::vector< unsigned int > >,
         std::vector< std::vector< Point<spacedim> > >
         > >                                                             &ghost_loc_pts,
-        std::vector< unsigned int >                                       &classified_pts
+        std::vector< unsigned int >                                      &classified_pts
       )
       {
         auto cpt_loc_pts = compute_point_locations_unmap(cache,local_points);
@@ -5507,7 +5503,7 @@ next_cell:
             auto &cell_loc = cell_tuples.first;
             auto &q_loc = std::get<0>(cell_tuples.second);
             auto &indices_loc = std::get<1>(cell_tuples.second);
-            if (cell_tuples.first->is_locally_owned() )
+            if (cell_loc->is_locally_owned() )
               {
                 // Point inside locally owned cell: storing all its data
                 std::vector < Point<spacedim> > cell_points(indices_loc.size());
@@ -5516,7 +5512,7 @@ next_cell:
                     // Adding the point to the cell points
                     cell_points[i] = local_points[indices_loc[i]];
                     // Storing the point as classified
-                    classified_pts.emplace_back(indices_loc[i]);
+                    classified_pts.emplace_back(local_points_idx[indices_loc[i]]);
                   }
 
                 output_unmap.emplace(std::make_pair(cell_loc,
@@ -5526,7 +5522,7 @@ next_cell:
                                                                     std::vector<unsigned int>
                                                                     (indices_loc.size(),cell_loc->subdomain_id()))));
               }
-            else if ( cell_tuples.first->is_ghost() )
+            else if ( cell_loc->is_ghost() )
               {
                 // Point inside ghost cell: storing all its data and preparing
                 // it to be sent
@@ -5534,7 +5530,8 @@ next_cell:
                 for (unsigned int i=0; i< indices_loc.size(); ++i)
                   {
                     cell_points[i] = local_points[indices_loc[i]];
-                    classified_pts.emplace_back(indices_loc[i]);
+                    classified_pts.emplace_back(local_points_idx[indices_loc[i]]);
+                    //std::cout << "ADD FOR RANK " << cell_loc->id() << " PT " << local_points[indices_loc[i]] << " ON POS " << indices_loc[i] << std::endl;
                   }
                 // Each key of the following map represent a process,
                 // each mapped value is a tuple containing the data to be sent:
@@ -5582,6 +5579,11 @@ next_cell:
         // vector of points: points received from such process
         for (auto const &rank_and_points : map_pts)
           {
+            // Rewriting the contents of the map in human readable format
+            const auto & received_process = rank_and_points.first;
+            const auto & received_points = rank_and_points.second.first;
+            const auto & received_ranks = rank_and_points.second.second;
+              
             // Initializing the vectors needed to store the result of compute point location
             std::vector< typename Triangulation<dim, spacedim>::active_cell_iterator > in_cell;
             std::vector< std::vector< Point<dim> > > in_qpoints;
@@ -5589,29 +5591,40 @@ next_cell:
             std::vector< std::vector< Point<spacedim> > > in_points;
 
             auto cpt_loc_pts = compute_point_locations_unmap(cache,rank_and_points.second.first);
-            for (const auto &cell_tuple :cpt_loc_pts)
+            for(const auto & map_c_pt_idx: cpt_loc_pts)
               {
-                auto &current_cell = cell_tuple.first;
-                if (no_check || current_cell->is_locally_owned() )
+                  // Human-readable variables:
+                  const auto & proc_cell = map_c_pt_idx.first;
+                  const auto & proc_qpoints = map_c_pt_idx.second.first;
+                  const auto & proc_maps = map_c_pt_idx.second.second;
+                  
+                // This is stored either if we're not checking if the cell is owned or
+                // if the cell is locally owned
+                if ( no_check || proc_cell->is_locally_owned() )
                   {
-                    in_cell.emplace_back(current_cell);
-                    in_qpoints.emplace_back(cell_tuple.second.first);
-                    const auto &cell_maps = cell_tuple.second.second;
+                    in_cell.emplace_back(proc_cell);
+                    in_qpoints.emplace_back(proc_qpoints);
+                    // The other two vectors need to be built
+                    unsigned int loc_size = proc_qpoints.size();
+                    std::vector< unsigned int > cell_maps(loc_size);
+                    std::vector< Point<spacedim> > cell_points(loc_size);
+                    for(unsigned int pt=0;pt<loc_size;++pt)
+                    {
+                        cell_maps[pt] = received_ranks[proc_maps[pt]];
+                        cell_points[pt] = received_points[proc_maps[pt]];
+                    }
                     in_maps.emplace_back(cell_maps);
-                    std::vector < Point<spacedim> > cell_points(cell_maps.size());
-                    for (unsigned int i=0; i< cell_maps.size(); ++i)
-                      cell_points[i] = rank_and_points.second.first[cell_maps[i]];
                     in_points.emplace_back(cell_points);
                   }
               }
+              
             // Merge everything from the current process
             internal::distributed_cptloc::merge_cptloc_outputs(output_unmap,
                                                                in_cell,
                                                                in_qpoints,
                                                                in_maps,
                                                                in_points,
-                                                               rank_and_points.first,
-                                                               check_owned);
+                                                               rank_and_points.first);
           }
 
 
@@ -5675,8 +5688,7 @@ next_cell:
         std::map< unsigned int, std::vector< unsigned int > > > guessed_points;
     guessed_points =
       GridTools::guess_point_owner(global_bounding_boxes, local_points);
-
-    // SMALL TEST, should not be here
+    // Analyzing the guessed points:
     for(const auto & map_key: std::get<1>(guessed_points))
     {
         unsigned int ct = 0;
@@ -5686,6 +5698,9 @@ next_cell:
         if(ct != 0)
             std::cout << "PROBLEM WITH GUESS BOXES!!!!!!" << std::endl;
     }
+            
+    //for(const auto & pt_map: std::get<2>(guessed_points))
+        //std::cout << local_points[pt_map.first] << " to " << pt_map.second[0] << " and " << pt_map.second[1] <<" MY RK " << my_rank << std::endl;            
 
     // Using previous data preparing the vector of points
     // which are probably local
@@ -5714,6 +5729,7 @@ next_cell:
           &internal::distributed_cptloc::compute_and_classify_points<dim,spacedim>,
           cache,
           guess_local_pts,
+          guess_loc_idx,
           temporary_unmap,
           ghost_loc_pts,
           classified_pts);
@@ -5766,28 +5782,36 @@ next_cell:
     // sorting the array classified pts in order to use
     // binary search when checking if the points needs to be
     // communicated
+    // Notice classified pts is a vector of integer indexes
     std::sort (classified_pts.begin(), classified_pts.end());
-    for (const auto &indices: other_check_idx)
+    //for(const auto & pos: classified_pts)
+        //std::cout << my_rank << " LOC " << pos << std::endl;
+    
+    for (const auto &pt_to_guesses: other_check_idx)
+    {
+      //std::cout << "BINARY SEARCH FOR " << my_rank << " PT " << local_points[pt_to_guesses.first] << " in position " << pt_to_guesses.first << std::endl;
       if ( !std::binary_search(
-             classified_pts.begin(), classified_pts.end(),indices.first) )
+             classified_pts.begin(), classified_pts.end(),pt_to_guesses.first) )
         // The point wasn't found in ghost or locally owned cells: adding it to the map
-        for (unsigned int rank=0; rank<indices.second.size(); ++rank)
-          if (indices.second[rank] != my_rank)
+        for (unsigned int rank=0; rank<pt_to_guesses.second.size(); ++rank)
+          if (pt_to_guesses.second[rank] != my_rank)
             {
-              auto &current_pts = other_check_pts[indices.second[rank]];
-              current_pts.first.emplace_back(local_points[indices.first]);
-              current_pts.second.emplace_back(indices.second[rank]);
+              auto &current_pts = other_check_pts[pt_to_guesses.second[rank]];
+              current_pts.first.emplace_back(local_points[pt_to_guesses.first]);
+              current_pts.second.emplace_back(pt_to_guesses.second[rank]);
+              //std::cout << " TO " << pt_to_guesses.second[rank] << "ADDED" << std::endl;
             }
+    }
 
     // Step 4: send around uncertain points
     auto check_pts = Utilities::MPI::some_to_some(mpi_communicator,other_check_pts);
     // Before proceeding, merging thread to avoid concurrency problems
     owned_pts_tsk.join();
-
+    
     // Step 5: add the received ghost cell data to output
     for ( const auto &rank_vals: cpt_ghost)
       {
-        // ?Transforming CellsIds into Tria iterators
+        // Transforming CellsIds into Tria iterators
         const auto &cell_ids = std::get<0>(rank_vals.second);
         unsigned int n_cells = cell_ids.size();
         std::vector< typename Triangulation<dim, spacedim>::active_cell_iterator >
@@ -5800,10 +5824,9 @@ next_cell:
                                                            std::get<1>(rank_vals.second),
                                                            std::get<2>(rank_vals.second),
                                                            std::get<3>(rank_vals.second),
-                                                           rank_vals.first,
-                                                           false);
+                                                           rank_vals.first);
       }
-
+      
     // Step 6: use compute point locations on the uncertain points and
     // merge output
     internal::distributed_cptloc::compute_and_merge_from_map(
@@ -5811,7 +5834,7 @@ next_cell:
       check_pts,
       temporary_unmap,
       true);
-
+    
     // Copying data from the unordered map to the tuple
     // and returning output
     unsigned int size_output = temporary_unmap.size();
