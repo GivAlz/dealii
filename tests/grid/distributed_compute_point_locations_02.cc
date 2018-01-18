@@ -77,15 +77,21 @@ void test_compute_pt_loc(unsigned int ref_cube, unsigned int ref_sphere)
   std::vector< std::vector<Point<dim> > > computed_points;
   std::vector< std::vector< unsigned int > > computed_ranks;
 
+  unsigned int computed_pts = 0;
   for (auto cell: sphere.active_cell_iterators())
     {
       auto center_pt = cell->center();
+      // Store the point only if it is inside a locally owned sphere cell
       if (cell->subdomain_id()==my_rank)
         loc_owned_points.emplace_back(center_pt);
+      // Find the cube cell where center pt lies
       auto my_pair = GridTools::find_active_cell_around_point
                      (cache, center_pt);
+      // If it is inside a locally owned cell it shall be returned
+      // from distributed compute point locations
       if ( my_pair.first->is_locally_owned() )
         {
+          computed_pts++;
           auto cells_it =
             std::find(computed_cells.begin(),computed_cells.end(),my_pair.first);
 
@@ -107,14 +113,13 @@ void test_compute_pt_loc(unsigned int ref_cube, unsigned int ref_sphere)
             }
         }
     }
-  deallog << "Running on " << loc_owned_points.size() << " locally owned points" << std::endl;
+
   // Computing bounding boxes describing the locally owned part of the mesh
   IteratorFilters::LocallyOwnedCell locally_owned_cell_predicate;
   std::vector< BoundingBox<dim> > local_bbox = GridTools::compute_mesh_predicate_bounding_box
                                                (cache.get_triangulation(), locally_owned_cell_predicate,
-                                                2, true, 10); // These options should be passed
+                                                1, true, 4);
   // Using the distributed version of compute point location
-  deallog << "Running distributed compute point locations" << std::endl;
   auto output_tuple = distributed_compute_point_locations
                       (cache,loc_owned_points,local_bbox,mpi_communicator);
   deallog << "Comparing results" << std::endl;
@@ -131,8 +136,10 @@ void test_compute_pt_loc(unsigned int ref_cube, unsigned int ref_sphere)
       deallog << "ERROR: non-matching number of cell found" << std::endl;
     }
 
+  unsigned int output_computed_pts = 0;
   for (unsigned int c=0; c< output_cells.size(); c++)
     {
+      output_computed_pts += output_points[c].size();
       const auto &cell = output_cells[c];
       auto cell_it =
         std::find(computed_cells.begin(),computed_cells.end(),cell);
@@ -148,6 +155,13 @@ void test_compute_pt_loc(unsigned int ref_cube, unsigned int ref_sphere)
             {
               test_passed = false;
               deallog << "ERROR: non-matching number of points for cell " << cell->active_cell_index() << std::endl;
+              deallog << "Distributed compute point location output:" << std::endl;
+              for (unsigned int pt_idx=0; pt_idx< output_points[c].size(); pt_idx++)
+                deallog << output_points[c][pt_idx] << std::endl;
+              deallog << "Expected points:" << std::endl;
+              for (unsigned int pt_idx=0; pt_idx< computed_points[c_cell].size(); pt_idx++)
+                deallog << computed_points[c_cell][pt_idx] << std::endl;
+
             }
           else
             {
@@ -159,7 +173,6 @@ void test_compute_pt_loc(unsigned int ref_cube, unsigned int ref_sphere)
                     std::find(computed_points[c_cell].begin(),computed_points[c_cell].end(),pt);
                   if ( pt_it == computed_points[c_cell].end() )
                     {
-                      // Cell not found: adding a new cell
                       deallog << "ERROR: point " << pt << " not found" << std::endl;
                       test_passed = false;
                     }
@@ -185,6 +198,11 @@ void test_compute_pt_loc(unsigned int ref_cube, unsigned int ref_sphere)
             }
         }
     }
+
+  deallog << "Number of points for distributed pt loc: " << loc_owned_points.size() << std::endl;
+  deallog << "Number of locally computed points: " << computed_pts << std::endl;
+  deallog << "Number of received points from distributed: " << output_computed_pts << std::endl;
+
   if (test_passed)
     deallog << "Test passed" << std::endl;
   else

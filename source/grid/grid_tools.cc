@@ -60,7 +60,7 @@
 #include <set>
 #include <tuple>
 #include <unordered_map>
-
+#include <iostream>
 
 DEAL_II_NAMESPACE_OPEN
 
@@ -5675,6 +5675,17 @@ next_cell:
         std::map< unsigned int, std::vector< unsigned int > > > guessed_points;
     guessed_points =
       GridTools::guess_point_owner(global_bounding_boxes, local_points);
+
+    // SMALL TEST, should not be here
+    for(const auto & map_key: std::get<1>(guessed_points))
+    {
+        unsigned int ct = 0;
+        for(const auto & map_key_2: std::get<2>(guessed_points))
+            if(map_key.first == map_key_2.first)
+                ct++;
+        if(ct != 0)
+            std::cout << "PROBLEM WITH GUESS BOXES!!!!!!" << std::endl;
+    }
 
     // Using previous data preparing the vector of points
     // which are probably local
