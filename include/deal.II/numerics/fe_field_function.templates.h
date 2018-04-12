@@ -17,6 +17,7 @@
 #define dealii_fe_field_function_templates_h
 
 
+#include <deal.II/base/bounding_box.h>
 #include <deal.II/base/utilities.h>
 #include <deal.II/base/logstream.h>
 #include <deal.II/grid/grid_tools.h>
@@ -31,6 +32,22 @@
 
 #include <tuple>
 
+namespace boost
+{
+  namespace serialization
+  {
+
+    template <class Archive, typename T>
+    void serialize(Archive &ar, std::complex<T> &pr, const unsigned int /*version*/)
+    {
+      T re = pr.real();
+      T im = pr.imag();
+      ar &re;
+      ar &im;
+    }
+
+  } // namespace serialization
+} // namespace boost
 
 
 DEAL_II_NAMESPACE_OPEN
@@ -292,6 +309,119 @@ namespace Functions
         for (unsigned int q=0; q<nq; ++q)
           values[maps[i][q]] = vvalues[q];
       }
+  }
+
+
+
+  template <int dim, typename DoFHandlerType, typename VectorType>
+  void
+  FEFieldFunction<dim, DoFHandlerType, VectorType>::
+  vector_value_list (const std::vector< Point< dim > >                      &points,
+                     std::vector< Vector<typename VectorType::value_type> > &values,
+                     const std::vector< BoundingBox<dim> >                  &local_bboxes) const
+  {
+    // Recovering the mpi communicator used to create the triangulation and
+    // checking the function is called on a distributed triangulation
+    const auto &tria_mpi =
+      dynamic_cast< const parallel::Triangulation< dim >*>(&cache.get_triangulation());
+    Assert(tria_mpi, ExcMessage("Error: Distributed version of FEFieldfunctions "
+                                "need a distributed triangulation!"));
+    auto mpi_communicator = tria_mpi->get_communicator();
+    const unsigned int my_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
+
+    // Currently the function uses local_bboxes because of how distributed compute
+    // point location works: this means that using the function repeatedly kills
+    // performance
+    Assert(points.size() == values.size(),
+           ExcDimensionMismatch(points.size(), values.size()));
+    // Using distributed compute point locations
+    const auto output_tuple = distributed_compute_point_locations
+                              (cache, points, local_bboxes);
+    // these vectors are coming from other processes
+    const auto &cells   = std::get<0>(output_tuple);
+    const auto &qpoints = std::get<1>(output_tuple);
+    const auto &maps    = std::get<2>(output_tuple);
+    // These are the ranks of the processes owning each point
+    const auto &ranks   = std::get<4>(output_tuple);
+
+    const unsigned int n_cells = cells.size();
+
+    hp::MappingCollection<dim> mapping_collection (mapping);
+    const hp::FECollection<dim> &fe_collection = dh->get_fe_collection();
+    hp::QCollection<dim> quadrature_collection;
+    // Create quadrature collection
+    for (unsigned int i=0; i<n_cells; ++i)
+      {
+        // Number of quadrature points on this cell
+        unsigned int nq = qpoints[i].size();
+        // Construct a quadrature formula
+        std::vector< double > ww(nq, 1./((double) nq));
+
+        quadrature_collection.push_back (Quadrature<dim> (qpoints[i], ww));
+      }
+    // Get a function value object
+    hp::FEValues<dim> fe_v(mapping_collection, fe_collection, quadrature_collection,
+                           update_values);
+
+    // Using a map to store the values of other processes:
+    // ranks of the owner -> pair of (position in the vector, value)
+    std::map<unsigned int,
+        std::vector< std::pair< unsigned int, Vector<typename VectorType::value_type> > > >
+        other_values;
+
+#if defined(DEBUG)
+    // This vector is used to check that values computed from the process are
+    // not overwritten from values received from other processes
+    std::vector< unsigned int > position_check(values.size(),0);
+#endif
+    // Compute all information for the received points:
+    for (unsigned int i=0; i<n_cells; ++i)
+      {
+#if defined(DEBUG)
+        // If this exception it thrown there is a problem with distributed compute
+        // point location: it returned points inside an artificial cell
+        AssertThrow (!cells[i]->is_artificial(),
+                     VectorTools::ExcPointNotAvailableHere());
+#endif
+        fe_v.reinit(cells[i], i, 0);
+        const unsigned int nq = qpoints[i].size();
+        std::vector< Vector<typename VectorType::value_type> > vvalues
+        (nq, Vector<typename VectorType::value_type>(this->n_components));
+        fe_v.get_present_fe_values ().get_function_values(data_vector, vvalues);
+        for (unsigned int q=0; q<nq; ++q)
+          {
+            if (ranks[i][q] == my_rank)
+              {
+                // point is local: storing the value in values
+                values[maps[i][q]] = vvalues[q];
+#if defined(DEBUG)
+                position_check[maps[i][q]] = 1;
+#endif
+              }
+            else
+              other_values[ranks[i][q]].emplace_back(
+                std::make_pair(maps[i][q],vvalues[q]));
+
+          }
+      }
+
+    // Sending and receiving values from other processes
+    // Received values is a map:
+    // rank of the sender -> vector ( pair( position, value) )
+    const auto received_values = Utilities::MPI::some_to_some(mpi_communicator,other_values);
+    // Storing the received values in values:
+    for ( const auto &rank_data : received_values)
+      for ( unsigned int i=0; i< rank_data.second.size(); ++i)
+        {
+#if defined(DEBUG)
+          AssertThrow(position_check[rank_data.second[i].first] == 0, ExcMessage("The value in this position"
+                      "has been already computed:"
+                      "this may be caused by a bug"
+                      "in distributed compute point"
+                      "locations"));
+#endif
+          values[rank_data.second[i].first] = rank_data.second[i].second;
+        }
   }
 
 

@@ -16,6 +16,7 @@
 #ifndef dealii_fe_function_h
 #define dealii_fe_function_h
 
+#include <deal.II/base/bounding_box.h>
 #include <deal.II/base/function.h>
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_accessor.h>
@@ -254,6 +255,14 @@ namespace Functions
      */
     virtual void vector_value_list (const std::vector<Point< dim > >     &points,
                                     std::vector<Vector<typename VectorType::value_type> > &values) const;
+
+    /**
+     * Parallel version of vector_value_list
+     */
+    virtual void vector_value_list (const std::vector<Point< dim > >                      &points,
+                                    std::vector<Vector<typename VectorType::value_type> > &values,
+                                    const std::vector< BoundingBox<dim> >                 &local_bboxes) const;
+
 
     /**
      * Return the gradient of all components of the function at the given
