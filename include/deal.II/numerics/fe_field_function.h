@@ -125,11 +125,20 @@ namespace Functions
    * and
    * @ref GlossGhostCell).
    * The solution can be evaluated on ghost cells, but for artificial cells
-   * we have no access to the solution there and
+   * we have no access to the solution there. By default
    * functions that evaluate the solution at such a point will trigger an
    * exception of type VectorTools::ExcPointNotAvailableHere.
    *
-   * To deal with this situation, you will want to use code as follows when,
+   * This can be solved computing a description of the locally owned
+   * part of the mesh using bounding boxes and then exchanging it with
+   * all other processes obtaining a global description
+   * (see GridTools::distributed_compute_point_locations for the details).
+   * To activate the distributed version of a function pass the global descrption
+   * as a fourth argument to the constructor of FeFieldFunction.
+   *
+   * If it is not possible to create the global description or the
+   * distributed version of the function is missing, to deal with the exception
+   * you will want to use code as follows when,
    * for example, evaluating the solution at the origin (here using a parallel
    * TrilinosWrappers vector to hold the solution):
    * @code
@@ -255,13 +264,6 @@ namespace Functions
      */
     virtual void vector_value_list (const std::vector<Point< dim > >     &points,
                                     std::vector<Vector<typename VectorType::value_type> > &values) const;
-
-    /**
-     * Parallel version of vector_value_list
-     */
-    virtual void vector_value_list (const std::vector<Point< dim > >                      &points,
-                                    std::vector<Vector<typename VectorType::value_type> > &values,
-                                    const std::vector< BoundingBox<dim> >                 &local_bboxes) const;
 
 
     /**
@@ -461,6 +463,17 @@ namespace Functions
      * The latest cell hint.
      */
     mutable cell_hint_t cell_hint;
+
+    /**
+     * A reference to the global bounding boxes, used to describe
+     * the owner of each portion of the mesh in a distributed triangulation.
+     */
+    const std::vector< std::vector< BoundingBox<dim> > > &global_bboxes;
+
+    /**
+     * A flag used to activate/deactivate the distributed version of this class methods.
+     */
+    bool avoid_distributed;
 
     /**
      * Given a cell, return the reference coordinates of the given point
