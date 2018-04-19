@@ -276,11 +276,10 @@ namespace Functions
   vector_value_list (const std::vector<Point< dim > > &points,
                      std::vector< Vector<typename VectorType::value_type> >    &values) const
   {
+    Assert(points.size() == values.size(),
+         ExcDimensionMismatch(points.size(), values.size()));
     if(avoid_distributed)
     {
-      Assert(points.size() == values.size(),
-             ExcDimensionMismatch(points.size(), values.size()));
-
       std::vector<typename DoFHandlerType::active_cell_iterator > cells;
       std::vector<std::vector<Point<dim> > > qpoints;
       std::vector<std::vector<unsigned int> > maps;
@@ -326,13 +325,17 @@ namespace Functions
       auto mpi_communicator = tria_mpi->get_communicator();
       const unsigned int my_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
 
-      Assert(points.size() == values.size(),
-             ExcDimensionMismatch(points.size(), values.size()));
+
       // Using distributed compute point locations
       const auto output_tuple = distributed_compute_point_locations
                                 (cache, points, global_bboxes);
-      // these vectors are coming from other processes
-      const auto &cells   = std::get<0>(output_tuple);
+      // cells need to be an iterator over the dof handler:
+      const auto &tria_cells = std::get<0>(output_tuple);
+      std::vector<typename DoFHandlerType::active_cell_iterator > cells(tria_cells.size());
+      unsigned int j = 0;
+      for (const auto &c: tria_cells)
+        cells[j++] = typename DoFHandlerType::cell_iterator(*c,dh);
+
       const auto &qpoints = std::get<1>(output_tuple);
       const auto &maps    = std::get<2>(output_tuple);
       // These are the ranks of the processes owning each point
@@ -345,6 +348,9 @@ namespace Functions
       hp::QCollection<dim> quadrature_collection;
       // Create quadrature collection
       for (unsigned int i=0; i<n_cells; ++i)
+        // Creating the quadrature collection for all cells but
+        // artificial ones
+        if(!cells[i]->is_artificial())
         {
           // Number of quadrature points on this cell
           unsigned int nq = qpoints[i].size();
@@ -364,13 +370,16 @@ namespace Functions
           other_values;
 
 #if defined(DEBUG)
-      // This vector is used to check that values computed from the process are
-      // not overwritten from values received from other processes
+      // This vector is used to flag which positions of values have
+      // been already computed: this is used to check if a position is
+      // written twice or, at the end, it has not been evaluated.
       std::vector< unsigned int > position_check(values.size(),0);
 #endif
       // Compute all information for the received points:
+      unsigned int my_vals =0;
+      unsigned int oth_vals =0;
       for (unsigned int i=0; i<n_cells; ++i)
-      {
+        {
 #if defined(DEBUG)
         // If this exception it thrown there is a problem with distributed compute
         // point location: it returned points inside an artificial cell
@@ -383,38 +392,76 @@ namespace Functions
         (nq, Vector<typename VectorType::value_type>(this->n_components));
         fe_v.get_present_fe_values ().get_function_values(data_vector, vvalues);
         for (unsigned int q=0; q<nq; ++q)
-        {
+          {
             if (ranks[i][q] == my_rank)
               {
+                std::cout << my_rank << " computed " << maps[i][q]
+                          << "i.e. point" << points[maps[i][q]] << " for SELF " << std::endl;
                 // point is local: storing the value in values
                 values[maps[i][q]] = vvalues[q];
+                ++my_vals;
 #if defined(DEBUG)
                 position_check[maps[i][q]] = 1;
 #endif
               }
             else
+            {
               other_values[ranks[i][q]].emplace_back(
                 std::make_pair(maps[i][q],vvalues[q]));
+              std::cout << my_rank << " computed " << maps[i][q]
+                        << "i.e. point" << points[maps[i][q]] << " for other " << std::endl;
+              oth_vals++;
+            }
+          }
         }
-      }
+      std::cout << "tot vals: " << values.size()
+                << "my vals : " << my_vals << " oth vals: " << oth_vals;
+//      std::cout << " Locally computed cells " << std::endl;
+//      for(const auto & v: values)
+//          std::cout << v[0] << std::endl;
+
+      std::cout << " position vector: " << std::endl;
+      for(unsigned int i=0; i< position_check.size(); ++i)
+          if(position_check[i]==0)
+              std::cout << my_rank << " missing " << i << std::endl;
+          else
+              std::cout << my_rank << " has " << i << std::endl;
 
       // Sending and receiving values from other processes
       // Received values is a map:
       // rank of the sender -> vector ( pair( position, value) )
       const auto received_values = Utilities::MPI::some_to_some(mpi_communicator,other_values);
       // Storing the received values in values:
+      std::cout << " Adding received stuff " << std::endl;
+
       for ( const auto &rank_data : received_values)
+      {
+        std::cout << my_rank << " SIZE RECEIVED " << rank_data.second.size() << std::endl;
         for ( unsigned int i=0; i< rank_data.second.size(); ++i)
           {
-#if defined(DEBUG)
-            AssertThrow(position_check[rank_data.second[i].first] == 0, ExcMessage("The value in this position"
-                        "has been already computed:"
-                        "this may be caused by a bug"
-                        "in distributed compute point"
-                        "locations"));
-#endif
-            values[rank_data.second[i].first] = rank_data.second[i].second;
+//#if defined(DEBUG)
+//            AssertThrow(position_check[rank_data.second[i].first] == 0,
+//                ExcMessage("The value in position "
+//                           + std::to_string(i) +
+//                           " has been already computed:"
+//                           " this may be caused by a bug"
+//                           " in distributed compute point"
+//                           " locations"));
+//            position_check[rank_data.second[i].first] = 1;
+//#endif
+//            values[rank_data.second[i].first] = rank_data.second[i].second;
+            std::cout << my_rank << " storing " << rank_data.second[i].first << " from other " << std::endl;
           }
+      }
+
+//#if defined(DEBUG)
+//      for(unsigned int idx =0; idx < position_check.size(); idx++)
+//          AssertThrow(position_check[idx] == 1,
+//            ExcMessage("ERROR: value at position"
+//                       + std::to_string(idx) +
+//                       "was not computed"
+//                       ));
+//#endif
     } // end else
   } // end function
 
