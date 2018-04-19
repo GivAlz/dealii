@@ -180,7 +180,8 @@ namespace Functions
      */
     FEFieldFunction (const DoFHandlerType &dh,
                      const VectorType     &data_vector,
-                     const Mapping<dim>   &mapping = StaticMappingQ1<dim>::mapping);
+                     const Mapping<dim>   &mapping = StaticMappingQ1<dim>::mapping,
+                     std::vector< std::vector< BoundingBox<dim> > > &global_bboxes = {});
 
     /**
      * Set the current cell. If you know in advance where your points lie, you
@@ -468,7 +469,7 @@ namespace Functions
      * A reference to the global bounding boxes, used to describe
      * the owner of each portion of the mesh in a distributed triangulation.
      */
-    const std::vector< std::vector< BoundingBox<dim> > > &global_bboxes;
+    std::vector< std::vector< BoundingBox<dim> > > &global_bboxes;
 
     /**
      * A flag used to activate/deactivate the distributed version of this class methods.

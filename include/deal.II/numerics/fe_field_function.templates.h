@@ -60,7 +60,7 @@ namespace Functions
   (const DoFHandlerType                                 &mydh,
    const VectorType                                     &myv,
    const Mapping<dim>                                   &mymapping,
-   const std::vector< std::vector< BoundingBox<dim> > > &global_bboxes = {})
+   std::vector<std::vector<BoundingBox<dim> > >         &global_bboxes)
     :
     Function<dim,typename VectorType::value_type>(mydh.get_fe(0).n_components()),
     dh(&mydh, "FEFieldFunction"),
@@ -69,7 +69,7 @@ namespace Functions
     cache(dh->get_triangulation(),mymapping),
     cell_hint(dh->end()),
     global_bboxes(global_bboxes),
-    avoid_distributed(global_bboxes.size()==0)
+    avoid_distributed( global_bboxes.size() == 0)
   {
   }
 
@@ -326,14 +326,11 @@ namespace Functions
       auto mpi_communicator = tria_mpi->get_communicator();
       const unsigned int my_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
 
-      // Currently the function uses local_bboxes because of how distributed compute
-      // point location works: this means that using the function repeatedly kills
-      // performance
       Assert(points.size() == values.size(),
              ExcDimensionMismatch(points.size(), values.size()));
       // Using distributed compute point locations
       const auto output_tuple = distributed_compute_point_locations
-                                (cache, points, local_bboxes);
+                                (cache, points, global_bboxes);
       // these vectors are coming from other processes
       const auto &cells   = std::get<0>(output_tuple);
       const auto &qpoints = std::get<1>(output_tuple);
@@ -420,18 +417,6 @@ namespace Functions
           }
     } // end else
   } // end function
-
-
-
-  template <int dim, typename DoFHandlerType, typename VectorType>
-  void
-  FEFieldFunction<dim, DoFHandlerType, VectorType>::
-  vector_value_list (const std::vector< Point< dim > >                      &points,
-                     std::vector< Vector<typename VectorType::value_type> > &values,
-                     const std::vector< BoundingBox<dim> >                  &local_bboxes) const
-  {
-
-  }
 
 
 
