@@ -16,12 +16,13 @@
 INCLUDE_DIRECTORIES(BEFORE ${CMAKE_CURRENT_BINARY_DIR})
 
 SET(_unity_include_src
+  distributed_handler.cc
   grid_refinement.cc
+  p4est_wrappers.cc
+  shared_tria.cc  
   solution_transfer.cc
   tria.cc
   tria_base.cc
-  shared_tria.cc
-  p4est_wrappers.cc
   )
 
 SET(_separate_src
@@ -37,12 +38,13 @@ SETUP_SOURCE_LIST("${_unity_include_src}"
   )
 
 SET(_inst
+  distributed_handler.inst.in
   grid_refinement.inst.in
-  solution_transfer.inst.in
+  p4est_wrappers.inst.in
   tria.inst.in
   shared_tria.inst.in
+  solution_transfer.inst.in
   tria_base.inst.in
-  p4est_wrappers.inst.in
   )
 
 FILE(GLOB _header
