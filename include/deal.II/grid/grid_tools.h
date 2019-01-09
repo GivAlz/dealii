@@ -720,6 +720,9 @@ namespace GridTools
    * they belong are the best case. Pre-sorting points, trying to minimize
    * distances between them, might make the function extremely faster.
    *
+   * @note Any point of @p points which lies either outside the mesh or on
+   * an artificial cell of a parallel triangulation, is ignored.
+   *
    * @note The actual return type of this function, i.e., the type referenced
    * above as @p return_type, is
    * @code
