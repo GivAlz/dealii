@@ -4801,7 +4801,7 @@ namespace GridTools
       std::vector<std::vector<unsigned int>>>
       tup;
     return tup;
-    //#else
+//#else
     std::tuple<
       std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator>,
       std::vector<std::vector<Point<dim>>>,
@@ -4835,24 +4835,34 @@ namespace GridTools
     // all points. Compute point locations uses a tree to discard points
     // which do not lie on locally owned cells
 
+
+    // Currently we're keeping things which are on ghost...
+    // To change this we need to change compute pt loc try all..
     auto &local_on_local = compute_point_locations_try_all(cache, local_points);
 
-    // Generating first part of the output
-    cells   = std::move(std::get<0>(local_on_local));
-    qpoints = std::move(std::get<1>(local_on_local));
-    maps    = std::move(std::get<2>(local_on_local));
+    // Renaming for simplicity
+    auto & found_cells = std::get<0>(local_on_local);
+    auto & found_qpoints = std::get<1>(local_on_local);
+    auto & found_maps = std::get<2>(local_on_local);
 
-    // TO DO: currently we're replicating the local points
-    // and my_rank, can we avoid this?
-    for (unsigned int c = 0; c < maps.size(); ++c)
+    std::map<unsigned int, std::vector<Point<spacedim> >
+        points_on_ghost;
+
+    // Generating first part of the output & preparing
+    // first data to be sent
+    for(unsigned int c=0;c<found_cells.size();++c)
+      if(found_cells[c]->is_locally_owned())
       {
-        const unsigned int cell_pts = maps[c].size();
-        points[c].resize(cell_pts);
-        owners[c].resize(cell_pts, my_rank);
-        for (unsigned int i = 0; i < cell_pts; ++i)
-          {
-            points[c][i] = local_points[maps[c][i]];
-          }
+        cells.emplace_back(found_cells[c]);
+        qpoints.emplace_back(found_qpoints[c]);
+        maps.emplace_back(found_maps[c]);
+      }
+      else if(found_cells[c]->is_ghost())
+      {
+        unsigned int rk = found_cells[c].subdomain_id();
+        points_on_ghost[rk].resize(found_cells[c].size());
+        for(unsigned int i=0; i<found_cells.size(); ++i)
+          points_on_ghost[rk][i] = local_points[maps[c][i]];
       }
 
     // Step 2: Using the covering rtree we guess which are the possible owners
