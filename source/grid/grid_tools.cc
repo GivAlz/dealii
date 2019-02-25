@@ -4813,6 +4813,32 @@ namespace GridTools
       ExcMessage(
         "GridTools::distributed_compute_point_locations() requires a parallel triangulation."));
     auto mpi_communicator = tria_mpi->get_communicator();
+    unsigned int my_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
+
+    // Step 1: Using compute point locations try all we try to identify
+    // all points. Compute point locations uses a tree to discard points
+    // which do not lie on locally owned cells
+
+    const auto local_on_local = compute_point_locations_try_all(cache,local_points);
+
+    // Step 2: Using the covering rtree we guess which are the possible owners
+    // of each point
+
+    // The last element of the tuple contains indices of points
+    // not found on locally owned cells
+    const auto& missing_pts = std::get<3>(local_on_local);
+
+    // Using the tree we guess points, if no tree is give, the
+    // cache is used
+    // For now (WIP) we use it by default
+    const auto & global_rtree = cache.get_covering_rtree();
+
+
+    // Variable used to contain the search results
+    std::vector<std::pair<BoundingBox<dim>, unsigned int>> search_result;
+
+    // Looping over all points
+
     // Preparing the output tuple
     std::tuple<
       std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator>,
@@ -4834,7 +4860,7 @@ namespace GridTools
 
     // Step 1 (part 1): Using the bounding boxes to guess the owner of each
     // points in local_points
-    unsigned int my_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
+
 
     // Using global bounding boxes to guess/find owner/s of each point
     std::tuple<std::vector<std::vector<unsigned int>>,
