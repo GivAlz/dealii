@@ -873,7 +873,7 @@ namespace GridTools
   distributed_compute_point_locations(
     const GridTools::Cache<dim, spacedim> &                cache,
     const std::vector<Point<spacedim>> &                   local_points,
-    const std::vector<std::vector<BoundingBox<spacedim>>> &global_bboxes);
+    const std::vector<std::vector<BoundingBox<spacedim>>> &global_bboxes = {});
 
   /**
    * Return a map `vertex index -> Point<spacedim>` containing the used
