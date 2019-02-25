@@ -4801,12 +4801,22 @@ namespace GridTools
       std::vector<std::vector<unsigned int>>>
       tup;
     return tup;
-#else    std::tuple<
-    std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator>,
-    std::vector<std::vector<Point<dim>>>,
-    std::vector<std::vector<unsigned int>>,
-    std::vector<std::vector<Point<spacedim>>>,
-    std::vector<std::vector<unsigned int>>> output_tuple;
+    //#else
+    std::tuple<
+      std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator>,
+      std::vector<std::vector<Point<dim>>>,
+      std::vector<std::vector<unsigned int>>,
+      std::vector<std::vector<Point<spacedim>>>,
+      std::vector<std::vector<unsigned int>>>
+      output_tuple;
+
+    // Renaming tuples parts for clarity
+    auto &cells   = std::get<0>(output_tuple);
+    auto &qpoints = std::get<1>(output_tuple);
+    auto &maps    = std::get<2>(output_tuple);
+    auto &points  = std::get<3>(output_tuple);
+    auto &owners  = std::get<4>(output_tuple);
+
     // Recovering the mpi communicator used to create the triangulation
     const auto &tria_mpi =
       dynamic_cast<const parallel::Triangulation<dim, spacedim> *>(
@@ -4818,31 +4828,50 @@ namespace GridTools
       tria_mpi,
       ExcMessage(
         "GridTools::distributed_compute_point_locations() requires a parallel triangulation."));
-    auto mpi_communicator = tria_mpi->get_communicator();
+    auto         mpi_communicator = tria_mpi->get_communicator();
     unsigned int my_rank = Utilities::MPI::this_mpi_process(mpi_communicator);
 
-    // Step 1: Using compute point locations try all we try to identify
+    // Step 1: Using compute point locations try all to identify
     // all points. Compute point locations uses a tree to discard points
     // which do not lie on locally owned cells
 
-    const auto local_on_local = compute_point_locations_try_all(cache,local_points);
+    auto &local_on_local = compute_point_locations_try_all(cache, local_points);
+
+    // Generating first part of the output
+    cells   = std::move(std::get<0>(local_on_local));
+    qpoints = std::move(std::get<1>(local_on_local));
+    maps    = std::move(std::get<2>(local_on_local));
+
+    // TO DO: currently we're replicating the local points
+    // and my_rank, can we avoid this?
+    for (unsigned int c = 0; c < maps.size(); ++c)
+      {
+        const unsigned int cell_pts = maps[c].size();
+        points[c].resize(cell_pts);
+        owners[c].resize(cell_pts, my_rank);
+        for (unsigned int i = 0; i < cell_pts; ++i)
+          {
+            points[c][i] = local_points[maps[c][i]];
+          }
+      }
 
     // Step 2: Using the covering rtree we guess which are the possible owners
     // of each point
 
     // The last element of the tuple contains indices of points
     // not found on locally owned cells
-    const auto& missing_pts = std::get<3>(local_on_local);
+    const auto &missing_pts = std::get<3>(local_on_local);
 
     // Using the tree we guess points, if no tree is give, the
     // cache is used
     // WIP NOW USING BY DEFAULT THE CACHE RTree...change the input argument
-    const auto & global_rtree = cache.get_covering_rtree();
+    const auto &global_rtree = cache.get_covering_rtree();
 
-    const auto & guessed_points = GridTools::guess_point_owner(global_rtree,
-                                                               missing_pts);
+    const auto &guessed_points =
+      GridTools::guess_point_owner(global_rtree, missing_pts);
 
-    // Step 3: communicate points of which we know the owner (because it's unique)
+    // Step 3: communicate points of which we know the owner (because it's
+    // unique)
 
     const auto &ptidx_rk_map = std::get<1>(guessed_points);
     // Using the indices to build the map which we shall send
@@ -4851,23 +4880,20 @@ namespace GridTools
       other_owned_pts;
 
     for (const auto &idx_rk : ptidx_rk_map)
-        {
-          // Indices.first is the index of the considered point in local points
-          other_owned_pts[idx_rk.second]
-              = std::make_pair(missing_pts[idx_rk.first],my_rank);
-        }
+      {
+        // Indices.first is the index of the considered point in local points
+        other_owned_pts[idx_rk.second] =
+          std::make_pair(missing_pts[idx_rk.first], my_rank);
+      }
 
     auto owned_rank_pts =
       Utilities::MPI::some_to_some(mpi_communicator, other_owned_pts);
 
     // Step 4: compute received points which are local
     // TO DO
-//    Threads::Task<void> owned_pts_tsk = Threads::new_task(
-//      &internal::distributed_cptloc::compute_and_merge_from_map<dim, spacedim>,
-//      cache,
-//      owned_rank_pts,
-//      temporary_unmap,
-//      false);
+    //    Threads::Task<void> owned_pts_tsk = Threads::new_task(
+    //      &internal::distributed_cptloc::compute_and_merge_from_map<dim,
+    //      spacedim>, cache, owned_rank_pts, temporary_unmap, false);
     // ASSERT: here missing points should be empty
 
     // Step 5: prepare and communicate points which have multiple guesses
@@ -4880,15 +4906,15 @@ namespace GridTools
     for (const auto &idx_rk : ptidx_multirk_map)
       {
         // Indices.first is the index of the considered point in local points
-        multi_ptidx_rk_map[id_rk.second]
-            = std::make_pair(missing_pts[idx_rk.first],my_rank);
+        multi_ptidx_rk_map[id_rk.second] =
+          std::make_pair(missing_pts[idx_rk.first], my_rank);
       }
 
     auto possible_pts =
       Utilities::MPI::some_to_some(mpi_communicator, multi_ptidx_rk_map);
 
     // Before proceeding, merging threads to avoid concurrency problems
-//    owned_pts_tsk.join();
+    //    owned_pts_tsk.join();
 
     // TO DO: call compute pt loc try all
 
@@ -4900,7 +4926,8 @@ namespace GridTools
 //        // Transforming CellsIds into Tria iterators
 //        const auto &cell_ids = std::get<0>(rank_vals.second);
 //        unsigned int n_cells = cell_ids.size();
-//        std::vector<typename Triangulation<dim, spacedim>::active_cell_iterator>
+//        std::vector<typename Triangulation<dim,
+//        spacedim>::active_cell_iterator>
 //          cell_iter(n_cells);
 //        for (unsigned int c = 0; c < n_cells; ++c)
 //          cell_iter[c] = cell_ids[c].to_cell(cache.get_triangulation());
